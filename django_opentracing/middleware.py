@@ -16,14 +16,22 @@ class OpenTracingMiddleware(MiddlewareMixin):
     '''
     In Django <= 1.9 __init__() is only called once, no arguments, when the Web server responds to the first request
     '''
-    def __init__(self, *args, **kwargs):
+    def __init__(self, get_response=None, *args, **kwargs):
         self._tracer = None
+        self.get_response = get_response
+
         # in django 1.10, __init__ is called on server startup
         if int(django.get_version().split('.')[1]) <= 9:
             if self._tracer == None:
                 self._tracer = self.init_tracer()
 
         super(OpenTracingMiddleware, self).__init__(*args, **kwargs)
+
+    def __call__(self, request):
+        if self._tracer == None:
+            self._tracer = self.init_tracer()
+
+        return self.get_response(request)
 
     def init_tracer(self):
         tracer_type = getattr(settings, 'OPENTRACING_TRACER', opentracing.Tracer)
