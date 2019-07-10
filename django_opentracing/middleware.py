@@ -1,6 +1,7 @@
 from __future__ import absolute_import
 import django
 from django.conf import settings
+from importlib import import_module
 from jaeger_client import Config
 import opentracing
 from .tracer import DjangoTracer
@@ -17,30 +18,27 @@ class OpenTracingMiddleware(MiddlewareMixin):
     '''
     In Django <= 1.9 __init__() is only called once, no arguments, when the Web server responds to the first request
     '''
-    def __init__(self, get_response=None):
+    def __init__(self, *args, **kwargs):
         self._tracer = None
-        self.get_response = get_response
 
         # in django 1.10, __init__ is called on server startup
         if int(django.get_version().split('.')[1]) <= 9:
             if self._tracer == None:
                 self._tracer = self.init_tracer()
 
-    '''
-    For Django >= 1.10, executed on every request
-    '''
-    def __call__(self, request):
+        super(OpenTracingMiddleware, self).__init__(*args, **kwargs)
+
+    def init_tracer(self):
+        tracer_type = getattr(settings, 'OPENTRACING_TRACER', opentracing.Tracer)
+        if isinstance(tracer_type, str):
+            tracer_type = import_module(tracer_type)
+        tracer = tracer_type()
+        return DjangoTracer(tracer)
+
+    def process_view(self, request, view_func, view_args, view_kwargs):
         if self._tracer == None:
             self._tracer = self.init_tracer()
 
-        response = self.get_response(request)
-
-        return response
-
-    def init_tracer(self):
-        return DjangoTracer(Config(config=settings.OPENTRACING_TRACER_CONFIG, service_name=settings.SERVICE_NAME).initialize_tracer())
-
-    def process_view(self, request, view_func, view_args, view_kwargs):
         if hasattr(settings, 'OPENTRACING_TRACED_ATTRIBUTES'):
             traced_attributes = getattr(settings, 'OPENTRACING_TRACED_ATTRIBUTES')
         else:
